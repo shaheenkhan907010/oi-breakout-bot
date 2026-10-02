@@ -33,6 +33,33 @@ def _get(path, params=None, tries=4):
             if i == tries - 1:
                 raise
             time.sleep(0.6 * (i + 1))
+    raise RuntimeError(f"OKX request exhausted retries: {path}")
+
+
+def _paginate(path, base_params, limit, total, max_pages=30, start_after=None):
+    """Page an OKX market-data endpoint backwards in time via `after`.
+    Stops on: no rows, a short page (end of data), no progress (ts not
+    decreasing -- guards against `after` being ignored), or max_pages."""
+    out = {}
+    after = start_after
+    for _ in range(max_pages):
+        if len(out) >= total:
+            break
+        params = dict(base_params, limit=limit)
+        if after:
+            params["after"] = after
+        rows = _get(path, params)
+        if not rows:
+            break
+        oldest = min(int(row[0]) for row in rows)
+        for row in rows:
+            out[int(row[0])] = row
+        if after is not None and oldest >= after:
+            break  # no progress -- stop instead of looping forever
+        after = oldest
+        if len(rows) < limit:
+            break
+    return out
 
 
 def get_symbols(min_vol_usd):
@@ -52,39 +79,13 @@ def get_symbols(min_vol_usd):
 
 def get_klines_1h(inst_id, total=800):
     """Closed 1H candles, oldest -> newest: [{t,o,h,l,c,v,ct}, ...]."""
-    out = {}
-    after = None
-    # 1) recent candles (kept for a limited lookback window)
-    while len(out) < total:
-        params = {"instId": inst_id, "bar": "1H", "limit": 300}
-        if after:
-            params["after"] = after
-        rows = _get("/api/v5/market/candles", params)
-        if not rows:
-            break
-        oldest = None
-        for row in rows:
-            ts = int(row[0])
-            oldest = ts if oldest is None else min(oldest, ts)
-            out[ts] = row
-        after = oldest
-        if len(rows) < 300:
-            break
-    # 2) deep history for anything still missing
-    while len(out) < total:
-        rows = _get("/api/v5/market/history-candles", {
-            "instId": inst_id, "bar": "1H", "limit": 100, "after": after,
-        })
-        if not rows:
-            break
-        oldest = None
-        for row in rows:
-            ts = int(row[0])
-            oldest = ts if oldest is None else min(oldest, ts)
-            out[ts] = row
-        after = oldest
-        if len(rows) < 100:
-            break
+    base = {"instId": inst_id, "bar": "1H"}
+    out = _paginate("/api/v5/market/candles", base, 300, total)
+    if len(out) < total:
+        oldest_so_far = min(out) if out else None
+        more = _paginate("/api/v5/market/history-candles", base, 100,
+                          total - len(out), start_after=oldest_so_far)
+        out.update(more)
 
     now = int(time.time() * 1000)
     bars = []
@@ -100,22 +101,6 @@ def get_klines_1h(inst_id, total=800):
 
 def get_oi_hist_1h(inst_id, total=700):
     """Open interest history (coin-denominated, oiCcy), oldest -> newest."""
-    out = {}
-    after = None
-    while len(out) < total:
-        params = {"instId": inst_id, "period": "1H", "limit": 100}
-        if after:
-            params["after"] = after
-        rows = _get("/api/v5/rubik/stat/contracts/open-interest-history", params)
-        if not rows:
-            break
-        oldest = None
-        for row in rows:
-            ts = int(row[0])
-            oldest = ts if oldest is None else min(oldest, ts)
-            out[ts] = float(row[2])  # oiCcy
-        if len(rows) < 100:
-            break
-        after = oldest
-
-    return [{"t": ts, "v": out[ts]} for ts in sorted(out.keys())]
+    base = {"instId": inst_id, "period": "1H"}
+    rows = _paginate("/api/v5/rubik/stat/contracts/open-interest-history", base, 100, total)
+    return [{"t": ts, "v": float(rows[ts][2])} for ts in sorted(rows.keys())]
