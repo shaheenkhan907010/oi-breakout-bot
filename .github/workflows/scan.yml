@@ -1,0 +1,50 @@
+name: OI Breakout Scan
+
+on:
+  schedule:
+    - cron: "2 * * * *"   # every hour at minute 2 (UTC)
+  workflow_dispatch:
+    inputs:
+      test_email:
+        description: "Send a test email only (skip the scan)"
+        type: boolean
+        default: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: oi-breakout-scan
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore seen-signals cache
+        uses: actions/cache/restore@v4
+        with:
+          path: cache
+          key: oi-breakout-seen-${{ github.run_id }}
+          restore-keys: |
+            oi-breakout-seen-
+
+      - name: Run
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_TO: ${{ secrets.ALERT_TO }}
+          TEST_EMAIL: ${{ inputs.test_email == true && 'true' || 'false' }}
+        run: python main.py
+
+      - name: Save seen-signals cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: cache
+          key: oi-breakout-seen-${{ github.run_id }}
