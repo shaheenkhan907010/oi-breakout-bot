@@ -14,18 +14,18 @@ ts1 = [int(r[0]) for r in page1]
 print("page1 ts range:", min(ts1), "..", max(ts1))
 
 oldest = min(ts1)
-page2_after = ex._get(path, {"instId": sym, "period": "1H", "limit": 100, "after": oldest})
-print("\npage2 (after=oldest) len:", len(page2_after))
-if page2_after:
-    ts2 = [int(r[0]) for r in page2_after]
+page2_end = ex._get(path, {"instId": sym, "period": "1H", "limit": 100, "end": oldest - 1})
+print("\npage2 (end=oldest-1) len:", len(page2_end))
+if page2_end:
+    ts2 = [int(r[0]) for r in page2_end]
     print("page2 ts range:", min(ts2), "..", max(ts2))
-
-newest = max(ts1)
-page2_before = ex._get(path, {"instId": sym, "period": "1H", "limit": 100, "before": oldest})
-print("\npage2 (before=oldest) len:", len(page2_before))
-if page2_before:
-    ts3 = [int(r[0]) for r in page2_before]
-    print("page2(before) ts range:", min(ts3), "..", max(ts3))
 
 # also check: is page1 sorted ascending or descending?
 print("\npage1 first row ts:", ts1[0], "last row ts:", ts1[-1], "(ascending if first<last)")
+
+print("\n--- full get_oi_hist_1h(total=700) ---")
+full = ex.get_oi_hist_1h(sym, total=700)
+print("points:", len(full))
+if full:
+    print("range:", full[0]["t"], "..", full[-1]["t"],
+          "=", (full[-1]["t"] - full[0]["t"]) / 3600000, "hours")

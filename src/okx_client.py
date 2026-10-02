@@ -99,8 +99,28 @@ def get_klines_1h(inst_id, total=800):
     return bars
 
 
-def get_oi_hist_1h(inst_id, total=700):
-    """Open interest history (coin-denominated, oiCcy), oldest -> newest."""
-    base = {"instId": inst_id, "period": "1H"}
-    rows = _paginate("/api/v5/rubik/stat/contracts/open-interest-history", base, 100, total)
-    return [{"t": ts, "v": float(rows[ts][2])} for ts in sorted(rows.keys())]
+def get_oi_hist_1h(inst_id, total=700, max_pages=30):
+    """Open interest history (coin-denominated, oiCcy), oldest -> newest.
+    This endpoint paginates via `begin`/`end` (not `after`/`before` like the
+    candles endpoints) and `end` is exclusive, so request end = oldest - 1."""
+    path = "/api/v5/rubik/stat/contracts/open-interest-history"
+    out = {}
+    end = None
+    for _ in range(max_pages):
+        if len(out) >= total:
+            break
+        params = {"instId": inst_id, "period": "1H", "limit": 100}
+        if end is not None:
+            params["end"] = end
+        rows = _get(path, params)
+        if not rows:
+            break
+        oldest = min(int(row[0]) for row in rows)
+        for row in rows:
+            out[int(row[0])] = row
+        if end is not None and oldest >= end:
+            break  # no progress -- stop instead of looping forever
+        end = oldest - 1
+        if len(rows) < 100:
+            break
+    return [{"t": ts, "v": float(out[ts][2])} for ts in sorted(out.keys())]
